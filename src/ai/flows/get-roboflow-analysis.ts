@@ -15,7 +15,7 @@ const RoboflowAnalysisInputSchema = z.object({
   photoDataUri: z
     .string()
     .describe(
-      "A photo of a shooting target, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
+      "A photo of a shooting target, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'"
     ),
 });
 export type RoboflowAnalysisInput = z.infer<typeof RoboflowAnalysisInputSchema>;
@@ -36,7 +36,7 @@ export type RoboflowAnalysisOutput = z.infer<
 const roboflowTool = ai.defineTool(
   {
     name: 'roboflowTool',
-    description: 'Get shot data from Roboflow',
+    description: 'Analyzes a shooting target image using Roboflow and returns the coordinates of the shots.',
     inputSchema: RoboflowAnalysisInputSchema,
     outputSchema: RoboflowAnalysisOutputSchema,
   },
@@ -53,11 +53,15 @@ const roboflowTool = ai.defineTool(
     const model = project.version(Number(modelId.split('/')[1])).model;
 
     try {
+      // Roboflow SDK expects a local file path or a Buffer.
+      // We are converting the data URI to a Buffer.
       const imageBuffer = Buffer.from(input.photoDataUri.split(',')[1], 'base64');
       const result = await model.predict(imageBuffer);
       
       const predictions = result.predictions || [];
 
+      // Assuming predictions have x, y, width, height, etc.
+      // We are mapping them to the expected `Shot` format.
       const shots = predictions.map((item: any) => ({
         x: item.x,
         y: item.y
@@ -66,10 +70,21 @@ const roboflowTool = ai.defineTool(
       return { shots };
     } catch (error) {
       console.error('Roboflow SDK error:', error);
+      // It's better to return an empty array of shots than to throw an error here,
+      // so the frontend can handle it gracefully.
       throw new Error(`Roboflow analysis failed.`);
     }
   }
 );
+
+
+const roboflowPrompt = ai.definePrompt({
+    name: 'roboflowPrompt',
+    tools: [roboflowTool],
+    input: { schema: RoboflowAnalysisInputSchema },
+    output: { schema: RoboflowAnalysisOutputSchema },
+    prompt: 'Analyze the provided image to identify shot locations. Use the roboflowTool to process the image and return the shot coordinates.'
+});
 
 export const getRoboflowAnalysis = ai.defineFlow(
   {
@@ -78,6 +93,7 @@ export const getRoboflowAnalysis = ai.defineFlow(
     outputSchema: RoboflowAnalysisOutputSchema,
   },
   async (input) => {
-    return await roboflowTool(input);
+     const { output } = await roboflowPrompt(input);
+     return output!;
   }
 );
