@@ -72,19 +72,10 @@ const roboflowTool = ai.defineTool(
       console.error('Roboflow SDK error:', error);
       // It's better to return an empty array of shots than to throw an error here,
       // so the frontend can handle it gracefully.
-      throw new Error(`Roboflow analysis failed.`);
+      return { shots: [] };
     }
   }
 );
-
-
-const roboflowPrompt = ai.definePrompt({
-    name: 'roboflowPrompt',
-    tools: [roboflowTool],
-    input: { schema: RoboflowAnalysisInputSchema },
-    output: { schema: RoboflowAnalysisOutputSchema },
-    prompt: 'Analyze the provided image to identify shot locations. Use the roboflowTool to process the image and return the shot coordinates.'
-});
 
 export const getRoboflowAnalysis = ai.defineFlow(
   {
@@ -93,7 +84,12 @@ export const getRoboflowAnalysis = ai.defineFlow(
     outputSchema: RoboflowAnalysisOutputSchema,
   },
   async (input) => {
-     const { output } = await roboflowPrompt(input);
-     return output!;
+    try {
+        const output = await roboflowTool(input);
+        return output;
+    } catch (error) {
+        console.error("Error in getRoboflowAnalysis flow:", error);
+        return { shots: [] }; // Return empty shots on error
+    }
   }
 );
