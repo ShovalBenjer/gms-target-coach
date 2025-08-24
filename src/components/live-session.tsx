@@ -21,32 +21,46 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
-const CameraCapture = ({ onCapture, isRunning, videoRef, hasCameraPermission }: { onCapture: () => void, isRunning: boolean, videoRef: React.RefObject<HTMLVideoElement>, hasCameraPermission: boolean | null }) => (
-  <Card className="h-full">
-    <CardHeader>
-      <div className="flex items-center gap-2">
-        <Video className="h-6 w-6" />
-        <CardTitle>Live Feed</CardTitle>
-      </div>
-    </CardHeader>
-    <CardContent className="flex flex-col items-center gap-4">
-      <div className="relative w-full overflow-hidden rounded-lg border bg-secondary aspect-video flex items-center justify-center">
-        <video ref={videoRef} className="w-full aspect-video rounded-md" autoPlay muted playsInline />
-        {hasCameraPermission === false && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white p-4">
-            Camera permission denied. Please enable it in your browser settings.
+const CameraCapture = ({ onCapture, isRunning }: { onCapture: () => void, isRunning: boolean }) => {
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const videoSrc = process.env.NEXT_PUBLIC_CAMERA_FEED_URL || '';
+
+    return (
+      <Card className="h-full">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Video className="h-6 w-6" />
+            <CardTitle>Live Feed</CardTitle>
           </div>
-        )}
-      </div>
-      <Button onClick={onCapture} disabled={!isRunning || !hasCameraPermission}>
-        <Camera className="mr-2 h-4 w-4" />
-        Capture Shot
-      </Button>
-    </CardContent>
-  </Card>
-);
+        </CardHeader>
+        <CardContent className="flex flex-col items-center gap-4">
+          <div className="relative w-full overflow-hidden rounded-lg border bg-secondary aspect-video flex items-center justify-center">
+            {videoSrc ? (
+                 <video
+                    ref={videoRef}
+                    src={videoSrc}
+                    className="w-full aspect-video rounded-md"
+                    autoPlay
+                    muted
+                    playsInline
+                    crossOrigin="anonymous" // Required for capturing frames from a remote source
+                />
+            ) : (
+                <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white p-4 text-center">
+                    <p>Camera feed URL not configured.</p>
+                    <p className="text-xs mt-2">Please set NEXT_PUBLIC_CAMERA_FEED_URL in your .env file.</p>
+                </div>
+            )}
+          </div>
+          <Button onClick={() => onCapture(videoRef.current)} disabled={!isRunning || !videoSrc}>
+            <Camera className="mr-2 h-4 w-4" />
+            Capture Shot
+          </Button>
+        </CardContent>
+      </Card>
+    )
+};
 
 const SessionControls = ({
   time,
@@ -115,35 +129,8 @@ export function LiveSession() {
   const [time, setTime] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const router = useRouter();
   const { toast } = useToast();
-
-  useEffect(() => {
-    const getCameraPermission = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        setHasCameraPermission(true);
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      } catch (error) {
-        console.error('Error accessing camera:', error);
-        setHasCameraPermission(false);
-        toast({
-          variant: 'destructive',
-          title: 'Camera Access Denied',
-          description: 'Please enable camera permissions in your browser settings to use this app.',
-        });
-      }
-    };
-
-    getCameraPermission();
-  }, [toast]);
-  
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -155,10 +142,9 @@ export function LiveSession() {
     return () => clearInterval(interval);
   }, [isRunning]);
 
-  const handleCaptureShot = useCallback(async () => {
-    if (!isRunning || !videoRef.current) return;
+  const handleCaptureShot = useCallback(async (video: HTMLVideoElement | null) => {
+    if (!isRunning || !video) return;
   
-    const video = videoRef.current;
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -245,21 +231,12 @@ export function LiveSession() {
         </p>
       </div>
 
-      {hasCameraPermission === false && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertTitle>Camera Access Required</AlertTitle>
-          <AlertDescription>
-            Please allow camera access to use this feature. You may need to reload the page after granting permission.
-          </AlertDescription>
-        </Alert>
-      )}
-
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <TargetVisualization shots={shots} />
         </div>
         <div className="flex flex-col gap-6">
-          <CameraCapture onCapture={handleCaptureShot} isRunning={isRunning} videoRef={videoRef} hasCameraPermission={hasCameraPermission} />
+          <CameraCapture onCapture={handleCaptureShot} isRunning={isRunning} />
           <SessionControls
             time={time}
             shotsCount={shots.length}
