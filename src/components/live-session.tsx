@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Camera, Timer, Video, XCircle, Loader2, Play, Pause } from 'lucide-react';
 import type { Shot, Metrics } from '@/lib/types';
@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TargetVisualization } from '@/components/target-visualization';
 import { createSession } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
-import Image from 'next/image';
+import { getRoboflowAnalysis } from '@/ai/flows/get-roboflow-analysis';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,8 +21,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
-const CameraCapture = ({ onCapture, isRunning }: { onCapture: () => void, isRunning: boolean }) => (
+const CameraCapture = ({ onCapture, isRunning, videoRef, hasCameraPermission }: { onCapture: () => void, isRunning: boolean, videoRef: React.RefObject<HTMLVideoElement>, hasCameraPermission: boolean | null }) => (
   <Card className="h-full">
     <CardHeader>
       <div className="flex items-center gap-2">
@@ -32,10 +33,14 @@ const CameraCapture = ({ onCapture, isRunning }: { onCapture: () => void, isRunn
     </CardHeader>
     <CardContent className="flex flex-col items-center gap-4">
       <div className="relative w-full overflow-hidden rounded-lg border bg-secondary aspect-video flex items-center justify-center">
-        <Image src="https://placehold.co/600x400.png" alt="Live camera feed" width={600} height={400} className="object-cover" data-ai-hint="shooting range target" />
-        <div className="absolute inset-0 bg-black/10" />
+        <video ref={videoRef} className="w-full aspect-video rounded-md" autoPlay muted playsInline />
+        {hasCameraPermission === false && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white p-4">
+            Camera permission denied. Please enable it in your browser settings.
+          </div>
+        )}
       </div>
-      <Button onClick={onCapture} disabled={!isRunning}>
+      <Button onClick={onCapture} disabled={!isRunning || !hasCameraPermission}>
         <Camera className="mr-2 h-4 w-4" />
         Capture Shot
       </Button>
@@ -110,8 +115,35 @@ export function LiveSession() {
   const [time, setTime] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const router = useRouter();
   const { toast } = useToast();
+
+  useEffect(() => {
+    const getCameraPermission = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        setHasCameraPermission(true);
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (error) {
+        console.error('Error accessing camera:', error);
+        setHasCameraPermission(false);
+        toast({
+          variant: 'destructive',
+          title: 'Camera Access Denied',
+          description: 'Please enable camera permissions in your browser settings to use this app.',
+        });
+      }
+    };
+
+    getCameraPermission();
+  }, [toast]);
+  
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -123,17 +155,47 @@ export function LiveSession() {
     return () => clearInterval(interval);
   }, [isRunning]);
 
-  const handleCaptureShot = useCallback(() => {
-    if (!isRunning) return;
-    const newShot: Shot = {
-      x: (Math.random() - 0.5) * 20,
-      y: (Math.random() - 0.5) * 20,
-    };
-    setShots((prev) => [...prev, newShot]);
-    toast({
-      title: 'Shot Captured!',
-      description: `Shot recorded at position (${newShot.x.toFixed(2)}, ${newShot.y.toFixed(2)}).`,
-    });
+  const handleCaptureShot = useCallback(async () => {
+    if (!isRunning || !videoRef.current) return;
+  
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    if (context) {
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const photoDataUri = canvas.toDataURL('image/jpeg');
+      
+      toast({
+        title: 'Capturing Shot...',
+        description: 'Analyzing image with Roboflow.',
+      });
+
+      try {
+        const analysis = await getRoboflowAnalysis({ photoDataUri });
+        if (analysis.shots.length > 0) {
+          setShots((prev) => [...prev, ...analysis.shots]);
+          toast({
+            title: `${analysis.shots.length} Shot(s) Captured!`,
+            description: `New shots recorded.`,
+          });
+        } else {
+          toast({
+            variant: "destructive",
+            title: 'No shots detected',
+            description: 'Roboflow could not detect any shots in the image.',
+          });
+        }
+      } catch (e) {
+        toast({
+          variant: "destructive",
+          title: 'Analysis Failed',
+          description: 'Could not analyze the image.',
+        });
+        console.error(e);
+      }
+    }
   }, [isRunning, toast]);
   
   const toggleRunning = () => {
@@ -182,12 +244,22 @@ export function LiveSession() {
           Your real-time shooting analysis is active.
         </p>
       </div>
+
+      {hasCameraPermission === false && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTitle>Camera Access Required</AlertTitle>
+          <AlertDescription>
+            Please allow camera access to use this feature. You may need to reload the page after granting permission.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <TargetVisualization shots={shots} />
         </div>
         <div className="flex flex-col gap-6">
-          <CameraCapture onCapture={handleCaptureShot} isRunning={isRunning} />
+          <CameraCapture onCapture={handleCaptureShot} isRunning={isRunning} videoRef={videoRef} hasCameraPermission={hasCameraPermission} />
           <SessionControls
             time={time}
             shotsCount={shots.length}

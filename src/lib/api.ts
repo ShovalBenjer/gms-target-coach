@@ -1,23 +1,22 @@
 import type { Session, Shot, Metrics } from './types';
 
-const generateRandomShots = (count: number): Shot[] => {
-  return Array.from({ length: count }, () => ({
-    x: Math.random() * 20 - 10,
-    y: Math.random() * 20 - 10,
-  }));
-};
-
 let sessions: Session[] = [
   {
     id: '1',
-    date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    shots: generateRandomShots(10),
+    date: '2024-08-20T12:00:00.000Z',
+    shots: [
+      { x: 1, y: 2 },
+      { x: -3, y: -4 },
+    ],
     metrics: { accuracy: 85.5, grouping: 7.2, time: 120 },
   },
   {
     id: '2',
-    date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-    shots: generateRandomShots(15),
+    date: '2024-08-21T14:30:00.000Z',
+    shots: [
+      { x: 5, y: -1 },
+      { x: 6, y: 0 },
+    ],
     metrics: { accuracy: 92.1, grouping: 5.4, time: 150 },
   },
 ];
