@@ -9,6 +9,7 @@
 
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
+import Roboflow from 'roboflow';
 
 const RoboflowAnalysisInputSchema = z.object({
   photoDataUri: z
@@ -40,31 +41,33 @@ const roboflowTool = ai.defineTool(
     outputSchema: RoboflowAnalysisOutputSchema,
   },
   async (input) => {
-    const response = await fetch(
-      `https://detect.roboflow.com/${process.env.ROBOFLOW_MODEL_ID}?api_key=${process.env.ROBOFLOW_API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: input.photoDataUri,
-      }
-    );
+    const apiKey = process.env.ROBOFLOW_API_KEY;
+    const modelId = process.env.ROBOFLOW_MODEL_ID;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Roboflow API error:', errorText);
-      throw new Error(`Roboflow API request failed: ${response.statusText}`);
+    if (!apiKey || !modelId) {
+      throw new Error('Roboflow API key or model ID is not configured.');
     }
+    
+    const rf = new Roboflow({ apiKey });
+    const project = rf.workspace().project(modelId.split('/')[0]);
+    const model = project.version(Number(modelId.split('/')[1])).model;
 
-    const data = await response.json();
+    try {
+      const imageBuffer = Buffer.from(input.photoDataUri.split(',')[1], 'base64');
+      const result = await model.predict(imageBuffer);
+      
+      const predictions = result.predictions || [];
 
-    const shots = data.predictions.map((prediction: any) => ({
-      x: prediction.x,
-      y: prediction.y,
-    }));
+      const shots = predictions.map((item: any) => ({
+        x: item.x,
+        y: item.y
+      }));
 
-    return { shots };
+      return { shots };
+    } catch (error) {
+      console.error('Roboflow SDK error:', error);
+      throw new Error(`Roboflow analysis failed.`);
+    }
   }
 );
 

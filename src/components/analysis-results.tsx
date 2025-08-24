@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, BrainCircuit, CheckCircle, Gauge, Lightbulb, ScatterChart as ScatterChartIcon } from 'lucide-react';
+import { ArrowLeft, BrainCircuit, CheckCircle, Gauge, Lightbulb, ScatterChart as ScatterChartIcon, Timer } from 'lucide-react';
 import type { Session } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,11 +21,29 @@ import {
   ResponsiveContainer,
   Label,
 } from 'recharts';
+import { useEffect, useState } from 'react';
 
 interface AnalysisResultsProps {
   session: Session;
   advice: string[];
 }
+
+const FormattedDate = ({ dateString }: { dateString: string }) => {
+  const [formattedDate, setFormattedDate] = useState('');
+
+  useEffect(() => {
+    setFormattedDate(
+      new Date(dateString).toLocaleDateString('en-us', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })
+    );
+  }, [dateString]);
+
+  return <>{formattedDate}</>;
+};
 
 const MetricCard = ({
   icon,
@@ -77,13 +95,7 @@ export function AnalysisResults({ session, advice }: AnalysisResultsProps) {
             Performance Report
           </h1>
           <p className="text-muted-foreground">
-            Analysis for session on{' '}
-            {new Date(session.date).toLocaleDateString('en-us', {
-              weekday: 'long',
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })}
+            Analysis for session on <FormattedDate dateString={session.date} />
           </p>
         </div>
       </div>

@@ -3,3 +3,4 @@ config();
 
 import '@/ai/flows/analyze-shooting-session.ts';
 import '@/ai/flows/get-roboflow-analysis';
+import '@/ai/flows/camera-flow';

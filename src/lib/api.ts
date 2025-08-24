@@ -1,25 +1,6 @@
 import type { Session, Shot, Metrics } from './types';
 
-let sessions: Session[] = [
-  {
-    id: '1',
-    date: '2024-08-20T12:00:00.000Z',
-    shots: [
-      { x: 1, y: 2 },
-      { x: -3, y: -4 },
-    ],
-    metrics: { accuracy: 85.5, grouping: 7.2, time: 120 },
-  },
-  {
-    id: '2',
-    date: '2024-08-21T14:30:00.000Z',
-    shots: [
-      { x: 5, y: -1 },
-      { x: 6, y: 0 },
-    ],
-    metrics: { accuracy: 92.1, grouping: 5.4, time: 150 },
-  },
-];
+let sessions: Session[] = [];
 
 export const getSessions = async (): Promise<Session[]> => {
   return new Promise((resolve) => {

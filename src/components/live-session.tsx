@@ -10,6 +10,7 @@ import { TargetVisualization } from '@/components/target-visualization';
 import { createSession } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { getRoboflowAnalysis } from '@/ai/flows/get-roboflow-analysis';
+import { manageCamera, fetchNextFrame } from '@/ai/flows/camera-flow';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,10 +23,18 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 
-const CameraCapture = ({ onCapture, isRunning }: { onCapture: () => void, isRunning: boolean }) => {
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const videoSrc = process.env.NEXT_PUBLIC_CAMERA_FEED_URL || '';
-
+const CameraCapture = ({ 
+  onCapture, 
+  isRunning,
+  latestFrame,
+  isCapturing,
+}: { 
+  onCapture: (frame: string) => void, 
+  isRunning: boolean,
+  latestFrame: string | null,
+  isCapturing: boolean,
+}) => {
+    const hasFrame = !!latestFrame;
     return (
       <Card className="h-full">
         <CardHeader>
@@ -36,25 +45,21 @@ const CameraCapture = ({ onCapture, isRunning }: { onCapture: () => void, isRunn
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-4">
           <div className="relative w-full overflow-hidden rounded-lg border bg-secondary aspect-video flex items-center justify-center">
-            {videoSrc ? (
-                 <video
-                    ref={videoRef}
-                    src={videoSrc}
-                    className="w-full aspect-video rounded-md"
-                    autoPlay
-                    muted
-                    playsInline
-                    crossOrigin="anonymous" // Required for capturing frames from a remote source
+            {hasFrame ? (
+                 <img
+                    src={latestFrame}
+                    className="w-full aspect-video rounded-md object-cover"
+                    alt="Live camera feed"
                 />
             ) : (
                 <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white p-4 text-center">
-                    <p>Camera feed URL not configured.</p>
-                    <p className="text-xs mt-2">Please set NEXT_PUBLIC_CAMERA_FEED_URL in your .env file.</p>
+                    <Loader2 className="h-8 w-8 animate-spin mb-2" />
+                    <p>Connecting to camera server...</p>
                 </div>
             )}
           </div>
-          <Button onClick={() => onCapture(videoRef.current)} disabled={!isRunning || !videoSrc}>
-            <Camera className="mr-2 h-4 w-4" />
+          <Button onClick={() => latestFrame && onCapture(latestFrame)} disabled={!isRunning || !hasFrame || isCapturing}>
+            {isCapturing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
             Capture Shot
           </Button>
         </CardContent>
@@ -129,9 +134,58 @@ export function LiveSession() {
   const [time, setTime] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [latestFrame, setLatestFrame] = useState<string | null>(null);
+  
   const router = useRouter();
   const { toast } = useToast();
+  const lastFrameId = useRef<number | undefined>();
+  const isPolling = useRef(false);
 
+  // Start/Stop camera session
+  useEffect(() => {
+    manageCamera({ action: 'start', fps: 1 }).then(res => {
+        if(res.success){
+            toast({ title: 'Camera session started' });
+        } else {
+            toast({ variant: 'destructive', title: 'Failed to start camera session' });
+        }
+    });
+
+    return () => {
+      manageCamera({ action: 'stop' }).then(res => {
+         if(res.success){
+            toast({ title: 'Camera session stopped' });
+        }
+      });
+    };
+  }, [toast]);
+  
+  // Fetch frames continuously
+  useEffect(() => {
+    const poll = async () => {
+      if (!isRunning || isPolling.current) return;
+
+      isPolling.current = true;
+      try {
+        const result = await fetchNextFrame({ sinceId: lastFrameId.current });
+        if (result.frameId && result.frameDataUri) {
+          lastFrameId.current = result.frameId;
+          setLatestFrame(result.frameDataUri);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        isPolling.current = false;
+        setTimeout(poll, 100); // Poll again after a short delay
+      }
+    };
+
+    poll(); // Start polling
+    
+  }, [isRunning]);
+
+  // Timer
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isRunning) {
@@ -142,45 +196,39 @@ export function LiveSession() {
     return () => clearInterval(interval);
   }, [isRunning]);
 
-  const handleCaptureShot = useCallback(async (video: HTMLVideoElement | null) => {
-    if (!isRunning || !video) return;
-  
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext('2d');
-    if (context) {
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const photoDataUri = canvas.toDataURL('image/jpeg');
-      
-      toast({
-        title: 'Capturing Shot...',
-        description: 'Analyzing image with Roboflow.',
-      });
+  const handleCaptureShot = useCallback(async (photoDataUri: string) => {
+    if (!isRunning) return;
+    setIsCapturing(true);
+    
+    toast({
+      title: 'Capturing Shot...',
+      description: 'Analyzing image with Roboflow.',
+    });
 
-      try {
-        const analysis = await getRoboflowAnalysis({ photoDataUri });
-        if (analysis.shots.length > 0) {
-          setShots((prev) => [...prev, ...analysis.shots]);
-          toast({
-            title: `${analysis.shots.length} Shot(s) Captured!`,
-            description: `New shots recorded.`,
-          });
-        } else {
-          toast({
-            variant: "destructive",
-            title: 'No shots detected',
-            description: 'Roboflow could not detect any shots in the image.',
-          });
-        }
-      } catch (e) {
+    try {
+      const analysis = await getRoboflowAnalysis({ photoDataUri });
+      if (analysis.shots.length > 0) {
+        setShots((prev) => [...prev, ...analysis.shots]);
+        toast({
+          title: `${analysis.shots.length} Shot(s) Captured!`,
+          description: `New shots recorded.`,
+        });
+      } else {
         toast({
           variant: "destructive",
-          title: 'Analysis Failed',
-          description: 'Could not analyze the image.',
+          title: 'No shots detected',
+          description: 'Roboflow could not detect any shots in the image.',
         });
-        console.error(e);
       }
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: 'Analysis Failed',
+        description: 'Could not analyze the image.',
+      });
+      console.error(e);
+    } finally {
+      setIsCapturing(false);
     }
   }, [isRunning, toast]);
   
@@ -236,7 +284,12 @@ export function LiveSession() {
           <TargetVisualization shots={shots} />
         </div>
         <div className="flex flex-col gap-6">
-          <CameraCapture onCapture={handleCaptureShot} isRunning={isRunning} />
+          <CameraCapture 
+            onCapture={handleCaptureShot} 
+            isRunning={isRunning} 
+            latestFrame={latestFrame}
+            isCapturing={isCapturing}
+          />
           <SessionControls
             time={time}
             shotsCount={shots.length}

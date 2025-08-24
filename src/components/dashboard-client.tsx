@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PlusCircle, FileText, LayoutDashboard } from 'lucide-react';
@@ -26,6 +26,22 @@ import { Badge } from './ui/badge';
 interface DashboardClientProps {
   initialSessions: Session[];
 }
+
+const FormattedDate = ({ dateString }: { dateString: string }) => {
+  const [formattedDate, setFormattedDate] = useState('');
+
+  useEffect(() => {
+    setFormattedDate(
+      new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })
+    );
+  }, [dateString]);
+
+  return <>{formattedDate}</>;
+};
 
 export function DashboardClient({ initialSessions }: DashboardClientProps) {
   const [sessions] = useState<Session[]>(initialSessions);
@@ -81,11 +97,7 @@ export function DashboardClient({ initialSessions }: DashboardClientProps) {
                 sessions.map((session) => (
                   <TableRow key={session.id}>
                     <TableCell>
-                      {new Date(session.date).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                      })}
+                      <FormattedDate dateString={session.date} />
                     </TableCell>
                     <TableCell className="text-center">{session.shots.length}</TableCell>
                     <TableCell className="text-center">{session.metrics.accuracy.toFixed(1)}%</TableCell>
