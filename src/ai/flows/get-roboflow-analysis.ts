@@ -21,12 +21,19 @@ const RoboflowAnalysisInputSchema = z.object({
 export type RoboflowAnalysisInput = z.infer<typeof RoboflowAnalysisInputSchema>;
 
 const RoboflowAnalysisOutputSchema = z.object({
-  shots: z.array(
-    z.object({
-      x: z.number().describe('The x coordinate of the shot on the target.'),
-      y: z.number().describe('The y coordinate of the shot on the target.'),
-    })
-  ),
+    inference_id: z.string(),
+    image: z.object({
+      width: z.number(),
+      height: z.number(),
+    }),
+    predictions: z.array(
+      z.object({
+        x: z.number().describe('The x coordinate of the shot on the target.'),
+        y: z.number().describe('The y coordinate of the shot on the target.'),
+        detection_id: z.string(),
+      })
+    ),
+    frame_timestamp: z.string(),
 });
 
 export type RoboflowAnalysisOutput = z.infer<
@@ -53,29 +60,27 @@ const roboflowTool = ai.defineTool(
     const model = project.version(Number(modelId.split('/')[1])).model;
 
     try {
-      // Roboflow SDK expects a local file path or a Buffer.
-      // We are converting the data URI to a Buffer.
       const imageBuffer = Buffer.from(input.photoDataUri.split(',')[1], 'base64');
       const result = await model.predict(imageBuffer);
-      
-      const predictions = result.predictions || [];
-
-      // Assuming predictions have x, y, width, height, etc.
-      // We are mapping them to the expected `Shot` format.
-      const shots = predictions.map((item: any) => ({
-        x: item.x,
-        y: item.y
-      }));
-
-      return { shots };
+      const predictions = result.predictions[0] || {};
+      return {
+        inference_id: predictions.inference_id,
+        image: predictions.image,
+        predictions: predictions.predictions,
+        frame_timestamp: predictions.frame_timestamp,
+      }
     } catch (error) {
       console.error('Roboflow SDK error:', error);
-      // It's better to return an empty array of shots than to throw an error here,
-      // so the frontend can handle it gracefully.
-      return { shots: [] };
+      return {
+        inference_id: '',
+        image: { width: 0, height: 0 },
+        predictions: [],
+        frame_timestamp: new Date().toISOString(),
+      };
     }
   }
 );
+
 
 export const getRoboflowAnalysis = ai.defineFlow(
   {
@@ -89,7 +94,12 @@ export const getRoboflowAnalysis = ai.defineFlow(
         return output;
     } catch (error) {
         console.error("Error in getRoboflowAnalysis flow:", error);
-        return { shots: [] }; // Return empty shots on error
+        return {
+            inference_id: '',
+            image: { width: 0, height: 0 },
+            predictions: [],
+            frame_timestamp: new Date().toISOString(),
+        };
     }
   }
 );

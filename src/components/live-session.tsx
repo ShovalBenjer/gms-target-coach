@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Camera, Timer, Video, XCircle, Loader2, Play, Pause } from 'lucide-react';
+import { Timer, XCircle, Loader2, Play, Pause } from 'lucide-react';
 import type { Shot, Metrics } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,50 +22,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-
-const CameraCapture = ({ 
-  onCapture, 
-  isRunning,
-  latestFrame,
-  isCapturing,
-}: { 
-  onCapture: (frame: string) => void, 
-  isRunning: boolean,
-  latestFrame: string | null,
-  isCapturing: boolean,
-}) => {
-    const hasFrame = !!latestFrame;
-    return (
-      <Card className="h-full">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Video className="h-6 w-6" />
-            <CardTitle>Live Feed</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col items-center gap-4">
-          <div className="relative w-full overflow-hidden rounded-lg border bg-secondary aspect-video flex items-center justify-center">
-            {hasFrame ? (
-                 <img
-                    src={latestFrame}
-                    className="w-full aspect-video rounded-md object-cover"
-                    alt="Live camera feed"
-                />
-            ) : (
-                <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white p-4 text-center">
-                    <Loader2 className="h-8 w-8 animate-spin mb-2" />
-                    <p>Connecting to camera server...</p>
-                </div>
-            )}
-          </div>
-          <Button onClick={() => latestFrame && onCapture(latestFrame)} disabled={!isRunning || !hasFrame || isCapturing}>
-            {isCapturing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-            Capture Shot
-          </Button>
-        </CardContent>
-      </Card>
-    )
-};
 
 const SessionControls = ({
   time,
@@ -134,13 +90,12 @@ export function LiveSession() {
   const [time, setTime] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [latestFrame, setLatestFrame] = useState<string | null>(null);
   
   const router = useRouter();
   const { toast } = useToast();
   const lastFrameId = useRef<number | undefined>();
   const isPolling = useRef(false);
+  const seenShotIds = useRef(new Set());
 
   // Start/Stop camera session
   useEffect(() => {
@@ -161,7 +116,42 @@ export function LiveSession() {
     };
   }, [toast]);
   
-  // Fetch frames continuously
+  const handleAnalysis = useCallback(async (photoDataUri: string, frame_timestamp: string) => {
+     try {
+      const analysis = await getRoboflowAnalysis({ photoDataUri });
+      if (analysis.predictions.length > 0) {
+        const newShots: Shot[] = [];
+        analysis.predictions.forEach(p => {
+          if (!seenShotIds.current.has(p.detection_id)) {
+            seenShotIds.current.add(p.detection_id);
+            newShots.push({
+              x: p.x,
+              y: p.y,
+              detection_id: p.detection_id,
+              timestamp: frame_timestamp,
+            });
+          }
+        });
+
+        if (newShots.length > 0) {
+          setShots((prev) => [...prev, ...newShots]);
+           toast({
+              title: `${newShots.length} New Shot(s) Detected!`,
+              description: `Added to session.`,
+            });
+        }
+      }
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: 'Analysis Failed',
+        description: 'Could not analyze the image.',
+      });
+      console.error(e);
+    }
+  }, [toast]);
+
+  // Fetch and analyze frames continuously
   useEffect(() => {
     const poll = async () => {
       if (!isRunning || isPolling.current) return;
@@ -171,19 +161,19 @@ export function LiveSession() {
         const result = await fetchNextFrame({ sinceId: lastFrameId.current });
         if (result.frameId && result.frameDataUri) {
           lastFrameId.current = result.frameId;
-          setLatestFrame(result.frameDataUri);
+          handleAnalysis(result.frameDataUri, new Date().toISOString());
         }
       } catch (e) {
         console.error(e);
       } finally {
         isPolling.current = false;
-        setTimeout(poll, 100); // Poll again after a short delay
+        setTimeout(poll, 1000); // Poll every second
       }
     };
 
-    poll(); // Start polling
+    poll();
     
-  }, [isRunning]);
+  }, [isRunning, handleAnalysis]);
 
   // Timer
   useEffect(() => {
@@ -196,42 +186,6 @@ export function LiveSession() {
     return () => clearInterval(interval);
   }, [isRunning]);
 
-  const handleCaptureShot = useCallback(async (photoDataUri: string) => {
-    if (!isRunning) return;
-    setIsCapturing(true);
-    
-    toast({
-      title: 'Capturing Shot...',
-      description: 'Analyzing image with Roboflow.',
-    });
-
-    try {
-      const analysis = await getRoboflowAnalysis({ photoDataUri });
-      if (analysis.shots.length > 0) {
-        setShots((prev) => [...prev, ...analysis.shots]);
-        toast({
-          title: `${analysis.shots.length} Shot(s) Captured!`,
-          description: `New shots recorded.`,
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: 'No shots detected',
-          description: 'Roboflow could not detect any shots in the image.',
-        });
-      }
-    } catch (e) {
-      toast({
-        variant: "destructive",
-        title: 'Analysis Failed',
-        description: 'Could not analyze the image.',
-      });
-      console.error(e);
-    } finally {
-      setIsCapturing(false);
-    }
-  }, [isRunning, toast]);
-  
   const toggleRunning = () => {
     setIsRunning(!isRunning);
   }
@@ -247,10 +201,53 @@ export function LiveSession() {
     };
     setIsLoading(true);
 
+    const targetCenterX = 500 / 2; // Assuming target size is 500px for visualization
+    const targetCenterY = 500 / 2;
+
+    const getDistance = (x1: number, y1: number, x2: number, y2: number) => {
+        return Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2));
+    };
+    
+    // Group Size
+    let maxDistance = 0;
+    for (let i = 0; i < shots.length; i++) {
+        for (let j = i + 1; j < shots.length; j++) {
+            const distance = getDistance(shots[i].x, shots[i].y, shots[j].x, shots[j].y);
+            if (distance > maxDistance) {
+                maxDistance = distance;
+            }
+        }
+    }
+    
+    // Group Center (MPI)
+    const avgX = shots.reduce((sum, shot) => sum + shot.x, 0) / shots.length;
+    const avgY = shots.reduce((sum, shot) => sum + shot.y, 0) / shots.length;
+
+    // Group Offset
+    const offset = getDistance(avgX, avgY, targetCenterX, targetCenterY);
+
+    // Consistency (Standard Deviation)
+    const distancesFromMpi = shots.map(s => getDistance(s.x, s.y, avgX, avgY));
+    const meanDistanceFromMpi = distancesFromMpi.reduce((sum, d) => sum + d, 0) / distancesFromMpi.length;
+    const consistency = Math.sqrt(distancesFromMpi.reduce((sum, d) => sum + Math.pow(d - meanDistanceFromMpi, 2), 0) / distancesFromMpi.length);
+
+    // Cadence
+    const sortedShots = [...shots].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const splitTimes = [];
+    for (let i = 1; i < sortedShots.length; i++) {
+      const timeDiff = (new Date(sortedShots[i].timestamp).getTime() - new Date(sortedShots[i-1].timestamp).getTime()) / 1000;
+      splitTimes.push(timeDiff);
+    }
+    const avgSplit = splitTimes.reduce((sum, t) => sum + t, 0) / (splitTimes.length || 1);
+    const cadence = avgSplit > 0 ? 60 / avgSplit : 0;
+    
     const metrics: Metrics = {
-      accuracy: Math.random() * 20 + 80, // 80-100
-      grouping: Math.random() * 5 + 1, // 1-6
-      time,
+        groupSize: maxDistance,
+        groupCenter: {x: avgX, y: avgY},
+        groupOffset: offset,
+        consistency: consistency,
+        time,
+        cadence: cadence
     };
 
     try {
@@ -275,7 +272,7 @@ export function LiveSession() {
       <div className="mb-6 space-y-1">
         <h1 className="font-headline text-3xl font-bold tracking-tight">Live Session</h1>
         <p className="text-muted-foreground">
-          Your real-time shooting analysis is active.
+          Real-time shooting analysis is active. New shots are detected automatically.
         </p>
       </div>
 
@@ -284,12 +281,6 @@ export function LiveSession() {
           <TargetVisualization shots={shots} />
         </div>
         <div className="flex flex-col gap-6">
-          <CameraCapture 
-            onCapture={handleCaptureShot} 
-            isRunning={isRunning} 
-            latestFrame={latestFrame}
-            isCapturing={isCapturing}
-          />
           <SessionControls
             time={time}
             shotsCount={shots.length}

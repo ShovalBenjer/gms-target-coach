@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, BrainCircuit, CheckCircle, Gauge, Lightbulb, ScatterChart as ScatterChartIcon, Timer } from 'lucide-react';
+import { ArrowLeft, BrainCircuit, CheckCircle, Gauge, Lightbulb, ScatterChart as ScatterChartIcon, Timer, Zap } from 'lucide-react';
 import type { Session } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -103,25 +103,24 @@ export function AnalysisResults({ session, advice }: AnalysisResultsProps) {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           icon={<CheckCircle className="h-4 w-4 text-muted-foreground" />}
-          title="Accuracy"
-          value={session.metrics.accuracy.toFixed(1)}
-          unit="%"
-          description="Overall shot accuracy"
+          title="Group Size"
+          value={session.metrics.groupSize.toFixed(2)}
+          unit=" px"
+          description="Extreme spread of shots"
         />
         <MetricCard
           icon={<Gauge className="h-4 w-4 text-muted-foreground" />}
-          title="Grouping"
-          value={session.metrics.grouping.toFixed(2)}
-          unit=" in"
-          description="Average shot deviation"
+          title="Consistency"
+          value={session.metrics.consistency.toFixed(2)}
+          unit=" px"
+          description="Shot deviation from group center"
         />
         <MetricCard
           icon={<Timer className="h-4 w-4 text-muted-foreground" />}
-          title="Session Time"
-          value={`${String(Math.floor(session.metrics.time / 60)).padStart(2, '0')}:${String(
-            session.metrics.time % 60
-          ).padStart(2, '0')}`}
-          description="Total duration of session"
+          title="Cadence"
+          value={session.metrics.cadence.toFixed(1)}
+          unit=" SPM"
+          description="Average shots per minute"
         />
         <MetricCard
           icon={<ScatterChartIcon className="h-4 w-4 text-muted-foreground" />}

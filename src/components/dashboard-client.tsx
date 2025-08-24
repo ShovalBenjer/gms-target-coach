@@ -47,10 +47,10 @@ export function DashboardClient({ initialSessions }: DashboardClientProps) {
   const [sessions] = useState<Session[]>(initialSessions);
   const router = useRouter();
 
-  const getPerformanceBadge = (accuracy: number) => {
-    if (accuracy > 90)
+  const getPerformanceBadge = (grouping: number) => {
+    if (grouping < 50) // Example threshold for 'Excellent'
       return <Badge variant="default" className="bg-green-500">Excellent</Badge>;
-    if (accuracy > 80)
+    if (grouping < 100) // Example threshold for 'Good'
       return <Badge variant="secondary" className="bg-yellow-500 text-black">Good</Badge>;
     return <Badge variant="destructive">Needs Improvement</Badge>;
   };
@@ -86,8 +86,8 @@ export function DashboardClient({ initialSessions }: DashboardClientProps) {
               <TableRow>
                 <TableHead>Date</TableHead>
                 <TableHead className="text-center">Total Shots</TableHead>
-                <TableHead className="text-center">Accuracy</TableHead>
-                <TableHead className="text-center">Grouping (in)</TableHead>
+                <TableHead className="text-center">Group Size (px)</TableHead>
+                <TableHead className="text-center">Consistency (px)</TableHead>
                 <TableHead className="text-center">Performance</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -100,10 +100,10 @@ export function DashboardClient({ initialSessions }: DashboardClientProps) {
                       <FormattedDate dateString={session.date} />
                     </TableCell>
                     <TableCell className="text-center">{session.shots.length}</TableCell>
-                    <TableCell className="text-center">{session.metrics.accuracy.toFixed(1)}%</TableCell>
-                    <TableCell className="text-center">{session.metrics.grouping.toFixed(2)}</TableCell>
+                    <TableCell className="text-center">{session.metrics.groupSize.toFixed(2)}</TableCell>
+                    <TableCell className="text-center">{session.metrics.consistency.toFixed(2)}</TableCell>
                     <TableCell className="text-center">
-                      {getPerformanceBadge(session.metrics.accuracy)}
+                      {getPerformanceBadge(session.metrics.groupSize)}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button
