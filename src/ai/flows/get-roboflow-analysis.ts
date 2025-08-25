@@ -9,7 +9,7 @@
 
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
-import Roboflow from 'roboflow';
+import type { RoboflowAnalysisOutput, RoboflowAnalysisInput } from '@/lib/types';
 
 const RoboflowAnalysisInputSchema = z.object({
   photoDataUri: z
@@ -18,44 +18,8 @@ const RoboflowAnalysisInputSchema = z.object({
       "A photo of a shooting target, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'"
     ),
 });
-export type RoboflowAnalysisInput = z.infer<typeof RoboflowAnalysisInputSchema>;
 
 const RoboflowAnalysisOutputSchema = z.array(z.any());
-
-export type RoboflowAnalysisOutput = z.infer<
-  typeof RoboflowAnalysisOutputSchema
->;
-
-const roboflowTool = ai.defineTool(
-  {
-    name: 'roboflowTool',
-    description: 'Analyzes a shooting target image using Roboflow and returns the coordinates of the shots.',
-    inputSchema: RoboflowAnalysisInputSchema,
-    outputSchema: RoboflowAnalysisOutputSchema,
-  },
-  async (input) => {
-    const apiKey = process.env.ROBOFLOW_API_KEY;
-    const modelId = process.env.ROBOFLOW_MODEL_ID;
-
-    if (!apiKey || !modelId) {
-      throw new Error('Roboflow API key or model ID is not configured.');
-    }
-    
-    const rf = new Roboflow({ apiKey });
-    const project = rf.workspace().project(modelId.split('/')[0]);
-    const model = project.version(Number(modelId.split('/')[1])).model;
-
-    try {
-      const imageBuffer = Buffer.from(input.photoDataUri.split(',')[1], 'base64');
-      const result = await model.predict(imageBuffer.toString('binary'));
-      return result.predictions;
-    } catch (error) {
-      console.error('Roboflow SDK error:', error);
-      return [];
-    }
-  }
-);
-
 
 export const getRoboflowAnalysis = ai.defineFlow(
   {
@@ -64,12 +28,41 @@ export const getRoboflowAnalysis = ai.defineFlow(
     outputSchema: RoboflowAnalysisOutputSchema,
   },
   async (input) => {
+    const apiKey = process.env.ROBOFLOW_API_KEY;
+    const workspaceId = process.env.ROBOFLOW_WORKSPACE_ID;
+    const modelId = process.env.ROBOFLOW_MODEL_ID;
+    const apiUrl = process.env.NEXT_PUBLIC_ROBOFLOW_API_URL;
+
+    if (!apiKey || !modelId || !workspaceId || !apiUrl) {
+      throw new Error('Roboflow environment variables are not configured.');
+    }
+    
+    // Roboflow's run_workflow expects the image data to be just the base64 part
+    const base64Image = input.photoDataUri.split(',')[1];
+
     try {
-        const output = await roboflowTool(input);
-        return output;
+      const response = await fetch(`${apiUrl}/${workspaceId}/${modelId}?api_key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: base64Image
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error('Roboflow API error:', response.status, errorBody);
+        throw new Error(`Failed to get analysis from Roboflow: ${response.statusText}`);
+      }
+
+      const result: RoboflowAnalysisOutput[] = await response.json();
+      return result;
+
     } catch (error) {
-        console.error("Error in getRoboflowAnalysis flow:", error);
-        return [];
+      console.error('Error in getRoboflowAnalysis flow:', error);
+      return [];
     }
   }
 );
