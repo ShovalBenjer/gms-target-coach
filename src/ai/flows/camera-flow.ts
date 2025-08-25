@@ -35,10 +35,21 @@ export const manageCamera = ai.defineTool(
           headers: POST_HEADERS,
           body: JSON.stringify({ fps, force: true }),
         });
-        if (!response.ok) {
-          console.error('Failed to start camera session:', await response.text());
-          throw new Error('Failed to start camera session');
+
+        // If a session is already running, the server might return 409 Conflict.
+        // We treat this as a success, similar to the Python example.
+        if (response.status === 409) {
+          console.log('Camera session already running, reusing.');
+          // You might want to fetch the current session ID here if needed.
+          return { success: true, status: 'already_running' };
         }
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Failed to start camera session:', errorText);
+          throw new Error(`Failed to start camera session: ${errorText}`);
+        }
+
         const data = await response.json();
         return { success: true, sessionId: data.session_id, status: data.status };
       } catch (error) {
@@ -52,7 +63,8 @@ export const manageCamera = ai.defineTool(
           headers: POST_HEADERS,
         });
         if (!response.ok) {
-            console.error('Failed to stop camera session:', await response.text());
+            const errorText = await response.text();
+            console.error('Failed to stop camera session:', errorText);
             return { success: false, status: 'Failed to stop session' };
         }
         const data = await response.json();
