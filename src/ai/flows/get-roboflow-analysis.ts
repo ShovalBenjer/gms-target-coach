@@ -62,6 +62,11 @@ export const getRoboflowAnalysis = ai.defineFlow(
       }
 
       const result: RoboflowAnalysisOutput[] = await response.json();
+      
+      if (!result || result.length === 0 || !result[0].output) {
+        return [];
+      }
+      
       return result;
 
     } catch (error) {
