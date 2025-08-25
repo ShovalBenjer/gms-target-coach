@@ -30,10 +30,10 @@ export const getRoboflowAnalysis = ai.defineFlow(
   async (input) => {
     const apiKey = process.env.ROBOFLOW_API_KEY;
     const workspaceId = process.env.ROBOFLOW_WORKSPACE_ID;
-    const modelId = process.env.ROBOFLOW_MODEL_ID;
+    const workflowId = process.env.ROBOFLOW_WORKFLOW_ID;
     const apiUrl = process.env.NEXT_PUBLIC_ROBOFLOW_API_URL;
 
-    if (!apiKey || !modelId || !workspaceId || !apiUrl) {
+    if (!apiKey || !workflowId || !workspaceId || !apiUrl) {
       throw new Error('Roboflow environment variables are not configured.');
     }
     
@@ -41,7 +41,7 @@ export const getRoboflowAnalysis = ai.defineFlow(
     const base64Image = input.photoDataUri.split(',')[1];
 
     try {
-      const response = await fetch(`${apiUrl}/workflows/${workspaceId}/${modelId}?api_key=${apiKey}`, {
+      const response = await fetch(`${apiUrl}/workflows/${workspaceId}/${workflowId}?api_key=${apiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
