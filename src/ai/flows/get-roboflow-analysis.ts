@@ -20,21 +20,7 @@ const RoboflowAnalysisInputSchema = z.object({
 });
 export type RoboflowAnalysisInput = z.infer<typeof RoboflowAnalysisInputSchema>;
 
-const RoboflowAnalysisOutputSchema = z.object({
-    inference_id: z.string(),
-    image: z.object({
-      width: z.number(),
-      height: z.number(),
-    }),
-    predictions: z.array(
-      z.object({
-        x: z.number().describe('The x coordinate of the shot on the target.'),
-        y: z.number().describe('The y coordinate of the shot on the target.'),
-        detection_id: z.string(),
-      })
-    ),
-    frame_timestamp: z.string(),
-});
+const RoboflowAnalysisOutputSchema = z.array(z.any());
 
 export type RoboflowAnalysisOutput = z.infer<
   typeof RoboflowAnalysisOutputSchema
@@ -61,22 +47,11 @@ const roboflowTool = ai.defineTool(
 
     try {
       const imageBuffer = Buffer.from(input.photoDataUri.split(',')[1], 'base64');
-      const result = await model.predict(imageBuffer);
-      const predictions = result.predictions[0] || {};
-      return {
-        inference_id: predictions.inference_id,
-        image: predictions.image,
-        predictions: predictions.predictions,
-        frame_timestamp: predictions.frame_timestamp,
-      }
+      const result = await model.predict(imageBuffer.toString('binary'));
+      return result.predictions;
     } catch (error) {
       console.error('Roboflow SDK error:', error);
-      return {
-        inference_id: '',
-        image: { width: 0, height: 0 },
-        predictions: [],
-        frame_timestamp: new Date().toISOString(),
-      };
+      return [];
     }
   }
 );
@@ -94,12 +69,7 @@ export const getRoboflowAnalysis = ai.defineFlow(
         return output;
     } catch (error) {
         console.error("Error in getRoboflowAnalysis flow:", error);
-        return {
-            inference_id: '',
-            image: { width: 0, height: 0 },
-            predictions: [],
-            frame_timestamp: new Date().toISOString(),
-        };
+        return [];
     }
   }
 );

@@ -33,7 +33,10 @@ export interface RoboflowAnalysisOutput {
     width: number;
     height: number;
   };
-  predictions: Shot[];
+  predictions: {
+    predictions: Shot[],
+    frame_timestamp: string,
+  };
   image_output?: {
     type: string;
     value: string; // base64 encoded string

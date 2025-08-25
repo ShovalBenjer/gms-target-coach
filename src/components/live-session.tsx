@@ -27,6 +27,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import { TargetVisualization } from './target-visualization';
 
 const StatBox = ({ label, value }: { label: string; value: string }) => (
   <div className="rounded-lg bg-background/50 p-4 text-center shadow-inner">
@@ -86,70 +87,106 @@ export function LiveSession() {
   // Recalculate metrics when shots change
   useEffect(() => {
     if (shots.length < 2) {
-        setSessionMetrics(prev => ({ ...prev, groupSize: 0, consistency: 0, cadence: 0 }));
-        return;
-    };
-    
+      setSessionMetrics((prev) => ({
+        ...prev,
+        groupSize: 0,
+        consistency: 0,
+        cadence: 0,
+      }));
+      return;
+    }
+
     const getDistance = (x1: number, y1: number, x2: number, y2: number) => {
       return Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2));
     };
 
     let maxDistance = 0;
     for (let i = 0; i < shots.length; i++) {
-        for (let j = i + 1; j < shots.length; j++) {
-            const distance = getDistance(shots[i].x, shots[i].y, shots[j].x, shots[j].y);
-            if (distance > maxDistance) {
-                maxDistance = distance;
-            }
+      for (let j = i + 1; j < shots.length; j++) {
+        const distance = getDistance(
+          shots[i].x,
+          shots[i].y,
+          shots[j].x,
+          shots[j].y
+        );
+        if (distance > maxDistance) {
+          maxDistance = distance;
         }
+      }
     }
-    
+
     const avgX = shots.reduce((sum, shot) => sum + shot.x, 0) / shots.length;
     const avgY = shots.reduce((sum, shot) => sum + shot.y, 0) / shots.length;
 
-    const targetCenterX = (latestAnalysis?.image.width ?? 0) / 2;
-    const targetCenterY = (latestAnalysis?.image.height ?? 0) / 2;
+    const targetCenterX = (latestAnalysis?.image?.width ?? 0) / 2;
+    const targetCenterY = (latestAnalysis?.image?.height ?? 0) / 2;
     const offset = getDistance(avgX, avgY, targetCenterX, targetCenterY);
-    
-    const distancesFromMpi = shots.map(s => getDistance(s.x, s.y, avgX, avgY));
-    const stdDev = Math.sqrt(distancesFromMpi.reduce((sum, d) => sum + Math.pow(d - (distancesFromMpi.reduce((a, b) => a + b) / distancesFromMpi.length), 2), 0) / (distancesFromMpi.length -1) );
 
-    const sortedShots = [...shots].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const distancesFromMpi = shots.map((s) =>
+      getDistance(s.x, s.y, avgX, avgY)
+    );
+    const stdDev = Math.sqrt(
+      distancesFromMpi.reduce(
+        (sum, d) =>
+          sum +
+          Math.pow(
+            d -
+              distancesFromMpi.reduce((a, b) => a + b) /
+                distancesFromMpi.length,
+            2
+          ),
+        0
+      ) /
+        (distancesFromMpi.length - 1)
+    );
+
+    const sortedShots = [...shots].sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
     const splitTimes = [];
     if (sortedShots.length > 1) {
       for (let i = 1; i < sortedShots.length; i++) {
-        const timeDiff = (new Date(sortedShots[i].timestamp).getTime() - new Date(sortedShots[i-1].timestamp).getTime()) / 1000;
+        const timeDiff =
+          (new Date(sortedShots[i].timestamp).getTime() -
+            new Date(sortedShots[i - 1].timestamp).getTime()) /
+          1000;
         splitTimes.push(timeDiff);
       }
     }
-    const avgSplit = splitTimes.reduce((sum, t) => sum + t, 0) / (splitTimes.length || 1);
+    const avgSplit =
+      splitTimes.reduce((sum, t) => sum + t, 0) / (splitTimes.length || 1);
     const cadence = avgSplit > 0 ? 60 / avgSplit : 0;
 
     setSessionMetrics({
-        groupSize: maxDistance,
-        groupCenter: {x: avgX, y: avgY},
-        groupOffset: offset,
-        consistency: stdDev,
-        time: time,
-        cadence: cadence
-    })
+      groupSize: maxDistance,
+      groupCenter: { x: avgX, y: avgY },
+      groupOffset: offset,
+      consistency: stdDev,
+      time: time,
+      cadence: cadence,
+    });
   }, [shots, latestAnalysis, time]);
-  
+
   const handleAnalysis = useCallback(
     async (photoDataUri: string) => {
       try {
-        const analysis = await getRoboflowAnalysis({ photoDataUri });
-
+        const result = await getRoboflowAnalysis({ photoDataUri });
+        const analysis = result[0]?.output;
+        
         if (!analysis || !analysis.predictions) return;
+
         setLatestAnalysis(analysis);
 
         const newShots: Shot[] = [];
-        analysis.predictions.forEach((p) => {
+        analysis.predictions.predictions.forEach((p: any) => {
           if (!seenShotIds.current.has(p.detection_id)) {
             seenShotIds.current.add(p.detection_id);
             newShots.push({
               ...p,
-              timestamp: new Date(analysis.frame_timestamp).toISOString(),
+              timestamp: new Date(
+                analysis.predictions.frame_timestamp
+              ).toISOString(),
             });
           }
         });
@@ -189,8 +226,8 @@ export function LiveSession() {
         console.error(e);
       } finally {
         isPolling.current = false;
-        if(isRunning) {
-            setTimeout(poll, 1000); // Poll every second
+        if (isRunning) {
+          setTimeout(poll, 1000); // Poll every second
         }
       }
     };
@@ -226,7 +263,7 @@ export function LiveSession() {
       return;
     }
     setIsLoading(true);
-    
+
     const finalMetrics = { ...sessionMetrics, time };
 
     try {
@@ -264,7 +301,7 @@ export function LiveSession() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
-        <div className="flex flex-col gap-6">
+        <div className="grid grid-cols-1 gap-6">
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
@@ -287,7 +324,7 @@ export function LiveSession() {
             </CardContent>
           </Card>
 
-          <Card>
+           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Bot className="h-6 w-6 text-primary" />
@@ -380,9 +417,11 @@ export function LiveSession() {
               </div>
             </CardContent>
           </Card>
+
+          <TargetVisualization shots={shots} />
+
         </div>
       </div>
     </div>
   );
-
-    
+}
