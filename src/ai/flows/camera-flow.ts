@@ -10,6 +10,7 @@ import { z } from 'zod';
 
 const BASE_URL = process.env.NEXT_PUBLIC_CAMERA_SERVER_URL || '';
 const HEADERS = { 'ngrok-skip-browser-warning': 'true' };
+const POST_HEADERS = { ...HEADERS, 'Content-Type': 'application/json' };
 
 // Tool to manage the camera session
 export const manageCamera = ai.defineTool(
@@ -31,7 +32,7 @@ export const manageCamera = ai.defineTool(
       try {
         const response = await fetch(`${BASE_URL}/session/start`, {
           method: 'POST',
-          headers: { ...HEADERS, 'Content-Type': 'application/json' },
+          headers: POST_HEADERS,
           body: JSON.stringify({ fps, force: true }),
         });
         if (!response.ok) {
@@ -48,7 +49,7 @@ export const manageCamera = ai.defineTool(
       try {
         const response = await fetch(`${BASE_URL}/session/close`, {
           method: 'POST',
-          headers: HEADERS,
+          headers: POST_HEADERS,
         });
         if (!response.ok) {
             console.error('Failed to stop camera session:', await response.text());
