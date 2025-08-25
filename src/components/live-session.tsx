@@ -14,8 +14,7 @@ import {
 } from '@/components/ui/card';
 import { createSession } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
-import { getRoboflowAnalysis } from '@/ai/flows/get-roboflow-analysis';
-import { manageCamera, fetchNextFrame } from '@/ai/flows/camera-flow';
+import { manageCamera, fetchAndAnalyzeNextFrame } from '@/ai/flows/camera-flow';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,12 +49,11 @@ export function LiveSession() {
   const [isRunning, setIsRunning] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [latestAnalysis, setLatestAnalysis] =
-    useState<RoboflowAnalysisOutput['output'][0] | null>(null);
+    useState<RoboflowAnalysisOutput | null>(null);
   const [latestFrame, setLatestFrame] = useState<string | null>(null);
 
   const router = useRouter();
   const { toast } = useToast();
-  const lastFrameId = useRef<number | undefined>();
   const isPolling = useRef(false);
   const seenShotIds = useRef(new Set());
   
@@ -71,6 +69,7 @@ export function LiveSession() {
         toast({
           variant: 'destructive',
           title: 'Failed to start camera session',
+          description: res.status
         });
       }
     });
@@ -172,78 +171,64 @@ export function LiveSession() {
     });
   }, [shots, latestAnalysis, time]);
 
-  const handleAnalysis = useCallback(
-    async (photoDataUri: string) => {
-      try {
-        const result = await getRoboflowAnalysis({ photoDataUri });
+  const handleAnalysisResult = useCallback(
+    (result: RoboflowAnalysisOutput[]) => {
+      if (!result || result.length === 0 || !result[0].output) return;
 
-        if (!result || result.length === 0) return;
+      const analysis = result[0].output;
+      setLatestAnalysis(analysis);
 
-        const analysis = result[0];
-        setLatestAnalysis(analysis);
-
-        const newShots: Shot[] = [];
-        if (analysis.predictions?.predictions) {
-            analysis.predictions.predictions.forEach((p: any) => {
-            if (!seenShotIds.current.has(p.detection_id)) {
-                seenShotIds.current.add(p.detection_id);
-                newShots.push({
-                ...p,
-                timestamp: new Date(
-                    analysis.predictions.frame_timestamp
-                ).toISOString(),
-                });
-            }
+      const newShots: Shot[] = [];
+      if (analysis.predictions?.predictions) {
+        analysis.predictions.predictions.forEach((p: any) => {
+          if (!seenShotIds.current.has(p.detection_id)) {
+            seenShotIds.current.add(p.detection_id);
+            newShots.push({
+              ...p,
+              timestamp: new Date(
+                analysis.predictions.frame_timestamp
+              ).toISOString(),
             });
-        }
-        
-
-        if (newShots.length > 0) {
-          setShots((prev) => [...prev, ...newShots]);
-          toast({
-            title: `${newShots.length} New Shot(s) Detected!`,
-            description: `Total shots: ${[...shots, ...newShots].length}`,
-          });
-        }
-      } catch (e) {
-        toast({
-          variant: 'destructive',
-          title: 'Analysis Failed',
-          description: 'Could not analyze the image.',
+          }
         });
-        console.error(e);
+      }
+
+      if (newShots.length > 0) {
+        setShots((prev) => [...prev, ...newShots]);
+        toast({
+          title: `${newShots.length} New Shot(s) Detected!`,
+          description: `Total shots: ${[...shots, ...newShots].length}`,
+        });
       }
     },
     [toast, shots]
   );
-  
-    // Fetch and analyze frames continuously
-    useEffect(() => {
-        const poll = async () => {
-        if (!isRunning || isPolling.current) return;
 
-        isPolling.current = true;
-        try {
-            const result = await fetchNextFrame({ sinceId: lastFrameId.current });
-            if (result.frameId && result.frameDataUri) {
-            lastFrameId.current = result.frameId;
-            await handleAnalysis(result.frameDataUri);
-            }
-        } catch (e) {
-            console.error(e);
-        } finally {
-            isPolling.current = false;
-            if (isRunning) {
-                // Use a timeout to avoid a tight loop, especially if errors occur
-                setTimeout(poll, 1000); 
-            }
+  // Fetch and analyze frames continuously
+  useEffect(() => {
+    const poll = async () => {
+      if (!isRunning || isPolling.current) return;
+      
+      isPolling.current = true;
+      try {
+        const result = await fetchAndAnalyzeNextFrame({}); // No sinceId needed as it's a demo
+        if (result && result.length > 0) {
+          handleAnalysisResult(result);
         }
-        };
-
+      } catch (e) {
+        console.error(e);
+      } finally {
+        isPolling.current = false;
         if (isRunning) {
-            poll();
+          setTimeout(poll, 1000); 
         }
-  }, [isRunning, handleAnalysis]);
+      }
+    };
+
+    if (isRunning) {
+      poll();
+    }
+  }, [isRunning, handleAnalysisResult]);
 
   // Update latest frame for display
   useEffect(() => {
@@ -455,4 +440,3 @@ export function LiveSession() {
     </div>
   );
 }
-

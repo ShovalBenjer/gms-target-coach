@@ -1,16 +1,19 @@
 /**
- * @fileOverview Manages the camera server session and frame retrieval.
+ * @fileOverview Manages the camera server session and frame retrieval/analysis.
  *
  * - manageCamera - A tool to control the camera session (start, stop).
- * - fetchNextFrame - A flow to get the next frame from the camera server.
+ * - fetchAndAnalyzeNextFrame - A flow to get the next frame and send it for analysis.
  */
 'use server';
+
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
+import { getRoboflowAnalysis } from './get-roboflow-analysis';
+import type { RoboflowAnalysisOutput } from '@/lib/types';
 
 const BASE_URL = process.env.NEXT_PUBLIC_CAMERA_SERVER_URL || '';
-const HEADERS = { 'ngrok-skip-browser-warning': 'true' };
-const POST_HEADERS = { ...HEADERS, 'Content-Type': 'application/json' };
+const POST_HEADERS = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
+const GET_HEADERS = { 'ngrok-skip-browser-warning': 'true' };
 
 // Tool to manage the camera session
 export const manageCamera = ai.defineTool(
@@ -35,18 +38,15 @@ export const manageCamera = ai.defineTool(
           headers: POST_HEADERS,
           body: JSON.stringify({ fps, force: true }),
         });
-
-        // If a session is already running, the server might return 409 Conflict.
-        // We treat this as a success, similar to the Python example.
+        
         if (response.status === 409) {
           console.log('Camera session already running, reusing.');
-          // You might want to fetch the current session ID here if needed.
           return { success: true, status: 'already_running' };
         }
         
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('Failed to start camera session:', errorText);
+          console.error('Failed to start camera session:', response.status, errorText);
           throw new Error(`Failed to start camera session: ${errorText}`);
         }
 
@@ -54,7 +54,7 @@ export const manageCamera = ai.defineTool(
         return { success: true, sessionId: data.session_id, status: data.status };
       } catch (error) {
         console.error('Error starting camera session:', error);
-        return { success: false, status: 'Error starting session' };
+        return { success: false, status: `Error: ${error instanceof Error ? error.message : String(error)}` };
       }
     } else { // stop
       try {
@@ -78,49 +78,49 @@ export const manageCamera = ai.defineTool(
 );
 
 
-// Flow to fetch the next frame
-export const fetchNextFrame = ai.defineFlow(
+// Flow to fetch the next frame and pass it to analysis
+export const fetchAndAnalyzeNextFrame = ai.defineFlow(
   {
-    name: 'fetchNextFrame',
+    name: 'fetchAndAnalyzeNextFrame',
     inputSchema: z.object({
       sinceId: z.number().optional(),
     }),
-    outputSchema: z.object({
-      frameId: z.number().nullable(),
-      sessionId: z.string().nullable(),
-      frameDataUri: z.string().nullable(),
-    }),
+    outputSchema: z.array(z.any()), // Output of getRoboflowAnalysis
   },
   async ({ sinceId }) => {
     try {
       const params = new URLSearchParams({ timeout: '10' });
-      if (sinceId) {
+      if (sinceId !== undefined && sinceId !== null) {
         params.set('since', sinceId.toString());
       }
       
       const response = await fetch(`${BASE_URL}/frame/next?${params.toString()}`, {
-        headers: HEADERS,
+        headers: GET_HEADERS,
       });
 
       if (response.status === 204) {
-        return { frameId: null, sessionId: null, frameDataUri: null };
+        // No new frame within timeout, return empty analysis
+        return [];
       }
 
       if (!response.ok) {
-        console.error('Failed to fetch frame:', await response.text());
+        const errorText = await response.text();
+        console.error('Failed to fetch frame:', errorText);
         throw new Error('Failed to fetch frame');
       }
 
-      const frameId = parseInt(response.headers.get('X-Frame-Id') || '0', 10);
-      const sessionId = response.headers.get('X-Session-Id');
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const frameDataUri = `data:image/jpeg;base64,${buffer.toString('base64')}`;
 
-      return { frameId, sessionId, frameDataUri };
+      // Now, call the analysis flow with the new frame
+      const analysisResult = await getRoboflowAnalysis({ photoDataUri: frameDataUri });
+
+      return analysisResult;
+
     } catch (error) {
-      console.error('Error fetching next frame:', error);
-      return { frameId: null, sessionId: null, frameDataUri: null };
+      console.error('Error in fetchAndAnalyzeNextFrame:', error);
+      return [];
     }
   }
 );
