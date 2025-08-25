@@ -175,7 +175,7 @@ export function LiveSession() {
     (result: RoboflowAnalysisOutput[]) => {
       if (!result || result.length === 0 || !result[0].output) return;
 
-      const analysis = result[0].output;
+      const analysis = result[0];
       setLatestAnalysis(analysis);
 
       const newShots: Shot[] = [];
@@ -211,12 +211,20 @@ export function LiveSession() {
       
       isPolling.current = true;
       try {
-        const result = await fetchAndAnalyzeNextFrame({}); // No sinceId needed as it's a demo
+        toast({ title: 'Fetching frame for analysis...' });
+        const result = await fetchAndAnalyzeNextFrame({});
         if (result && result.length > 0) {
           handleAnalysisResult(result);
+        } else {
+          toast({ title: 'Analysis returned no new shots.' });
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error(e);
+        toast({
+            variant: 'destructive',
+            title: 'Analysis Failed',
+            description: e.message || 'Could not connect to analysis server.',
+        });
       } finally {
         isPolling.current = false;
         if (isRunning) {
@@ -228,7 +236,7 @@ export function LiveSession() {
     if (isRunning) {
       poll();
     }
-  }, [isRunning, handleAnalysisResult]);
+  }, [isRunning, handleAnalysisResult, toast]);
 
   // Update latest frame for display
   useEffect(() => {

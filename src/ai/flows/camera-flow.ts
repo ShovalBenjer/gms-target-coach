@@ -82,24 +82,17 @@ export const manageCamera = ai.defineTool(
 export const fetchAndAnalyzeNextFrame = ai.defineFlow(
   {
     name: 'fetchAndAnalyzeNextFrame',
-    inputSchema: z.object({
-      sinceId: z.number().optional(),
-    }),
+    inputSchema: z.any(), // Input is not used, but required
     outputSchema: z.array(z.any()), // Output of getRoboflowAnalysis
   },
-  async ({ sinceId }) => {
+  async () => {
     try {
-      const params = new URLSearchParams({ timeout: '10' });
-      if (sinceId !== undefined && sinceId !== null) {
-        params.set('since', sinceId.toString());
-      }
-      
-      const response = await fetch(`${BASE_URL}/frame/next?${params.toString()}`, {
+      const response = await fetch(`${BASE_URL}/frame/latest`, {
         headers: GET_HEADERS,
       });
 
-      if (response.status === 204) {
-        // No new frame within timeout, return empty analysis
+      if (response.status === 204 || response.status === 503) {
+        // No new frame available yet
         return [];
       }
 
@@ -120,7 +113,7 @@ export const fetchAndAnalyzeNextFrame = ai.defineFlow(
 
     } catch (error) {
       console.error('Error in fetchAndAnalyzeNextFrame:', error);
-      return [];
+      throw error;
     }
   }
 );
