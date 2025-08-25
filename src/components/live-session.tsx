@@ -173,7 +173,10 @@ export function LiveSession() {
 
   const handleAnalysisResult = useCallback(
     (result: RoboflowAnalysisOutput[]) => {
-      if (!result || result.length === 0 || !result[0].output) return;
+      if (!result || result.length === 0 || !result[0].output) {
+        toast({ title: 'Analysis returned no new shots.' });
+        return;
+      }
 
       const analysis = result[0];
       setLatestAnalysis(analysis);
@@ -199,6 +202,8 @@ export function LiveSession() {
           title: `${newShots.length} New Shot(s) Detected!`,
           description: `Total shots: ${[...shots, ...newShots].length}`,
         });
+      } else {
+        toast({ title: 'Analysis returned no new shots.' });
       }
     },
     [toast, shots]
@@ -206,6 +211,8 @@ export function LiveSession() {
 
   // Fetch and analyze frames continuously
   useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+
     const poll = async () => {
       if (!isRunning || isPolling.current) return;
       
@@ -215,8 +222,6 @@ export function LiveSession() {
         const result = await fetchAndAnalyzeNextFrame({});
         if (result && result.length > 0) {
           handleAnalysisResult(result);
-        } else {
-          toast({ title: 'Analysis returned no new shots.' });
         }
       } catch (e: any) {
         console.error(e);
@@ -228,7 +233,7 @@ export function LiveSession() {
       } finally {
         isPolling.current = false;
         if (isRunning) {
-          setTimeout(poll, 1000); 
+          timeoutId = setTimeout(poll, 1000); 
         }
       }
     };
@@ -236,6 +241,8 @@ export function LiveSession() {
     if (isRunning) {
       poll();
     }
+
+    return () => clearTimeout(timeoutId);
   }, [isRunning, handleAnalysisResult, toast]);
 
   // Update latest frame for display
@@ -276,16 +283,18 @@ export function LiveSession() {
   };
 
   const handleEndSession = async () => {
+    if (isLoading) return;
+    setIsLoading(true);
+    setIsRunning(false); // Stop any polling
+
     if (shots.length === 0) {
       toast({
-        variant: 'destructive',
-        title: 'Session cannot be empty',
-        description:
-          'Please capture at least one shot before ending the session.',
+        title: 'Session Ended with No Shots',
+        description: 'Redirecting to your dashboard.',
       });
+      router.push('/dashboard');
       return;
     }
-    setIsLoading(true);
 
     const finalMetrics = { ...sessionMetrics, time };
 
@@ -409,7 +418,7 @@ export function LiveSession() {
                     <Button
                       variant="destructive"
                       size="lg"
-                      disabled={shots.length === 0 || isLoading}
+                      disabled={isLoading}
                     >
                       {isLoading ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
