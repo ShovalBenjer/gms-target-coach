@@ -9,7 +9,7 @@
 
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
-import type { RoboflowAnalysisOutput, RoboflowAnalysisInput } from '@/lib/types';
+import type { RoboflowAnalysisOutput } from '@/lib/types';
 
 const RoboflowAnalysisInputSchema = z.object({
   photoDataUri: z
@@ -37,17 +37,21 @@ export const getRoboflowAnalysis = ai.defineFlow(
       throw new Error('Roboflow environment variables are not configured.');
     }
     
-    // Roboflow's run_workflow expects the image data to be just the base64 part
+    // Roboflow's API expects the image data to be just the base64 part
     const base64Image = input.photoDataUri.split(',')[1];
 
     try {
-      const response = await fetch(`${apiUrl}/${workspaceId}/${modelId}?api_key=${apiKey}`, {
+      const response = await fetch(`${apiUrl}/workflows/${workspaceId}/${modelId}?api_key=${apiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
         body: JSON.stringify({
-          image: base64Image
+          image: {
+            type: "base64",
+            value: base64Image
+          }
         }),
       });
 
