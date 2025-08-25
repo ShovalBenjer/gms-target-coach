@@ -50,15 +50,16 @@ export function LiveSession() {
   const [isRunning, setIsRunning] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [latestAnalysis, setLatestAnalysis] =
-    useState<RoboflowAnalysisOutput | null>(null);
+    useState<RoboflowAnalysisOutput['output'][0] | null>(null);
+  const [latestFrame, setLatestFrame] = useState<string | null>(null);
 
   const router = useRouter();
   const { toast } = useToast();
   const lastFrameId = useRef<number | undefined>();
   const isPolling = useRef(false);
   const seenShotIds = useRef(new Set());
-
-  const cameraFeedUrl = process.env.NEXT_PUBLIC_CAMERA_FEED_URL;
+  
+  const cameraFeedUrl = process.env.NEXT_PUBLIC_CAMERA_SERVER_URL ? `${process.env.NEXT_PUBLIC_CAMERA_SERVER_URL}/frame/latest` : null;
 
   // Start/Stop camera session
   useEffect(() => {
@@ -117,9 +118,12 @@ export function LiveSession() {
 
     const avgX = shots.reduce((sum, shot) => sum + shot.x, 0) / shots.length;
     const avgY = shots.reduce((sum, shot) => sum + shot.y, 0) / shots.length;
+    
+    const imageWidth = latestAnalysis?.image?.width ?? 0;
+    const imageHeight = latestAnalysis?.image?.height ?? 0;
 
-    const targetCenterX = (latestAnalysis?.image?.width ?? 0) / 2;
-    const targetCenterY = (latestAnalysis?.image?.height ?? 0) / 2;
+    const targetCenterX = imageWidth / 2;
+    const targetCenterY = imageHeight / 2;
     const offset = getDistance(avgX, avgY, targetCenterX, targetCenterY);
 
     const distancesFromMpi = shots.map((s) =>
@@ -137,7 +141,7 @@ export function LiveSession() {
           ),
         0
       ) /
-        (distancesFromMpi.length - 1)
+        (distancesFromMpi.length - 1 || 1)
     );
 
     const sortedShots = [...shots].sort(
@@ -172,24 +176,27 @@ export function LiveSession() {
     async (photoDataUri: string) => {
       try {
         const result = await getRoboflowAnalysis({ photoDataUri });
-        const analysis = result[0]?.output;
-        
-        if (!analysis || !analysis.predictions) return;
 
+        if (!result || result.length === 0) return;
+
+        const analysis = result[0];
         setLatestAnalysis(analysis);
 
         const newShots: Shot[] = [];
-        analysis.predictions.predictions.forEach((p: any) => {
-          if (!seenShotIds.current.has(p.detection_id)) {
-            seenShotIds.current.add(p.detection_id);
-            newShots.push({
-              ...p,
-              timestamp: new Date(
-                analysis.predictions.frame_timestamp
-              ).toISOString(),
+        if (analysis.predictions?.predictions) {
+            analysis.predictions.predictions.forEach((p: any) => {
+            if (!seenShotIds.current.has(p.detection_id)) {
+                seenShotIds.current.add(p.detection_id);
+                newShots.push({
+                ...p,
+                timestamp: new Date(
+                    analysis.predictions.frame_timestamp
+                ).toISOString(),
+                });
+            }
             });
-          }
-        });
+        }
+        
 
         if (newShots.length > 0) {
           setShots((prev) => [...prev, ...newShots]);
@@ -209,33 +216,56 @@ export function LiveSession() {
     },
     [toast, shots]
   );
+  
+    // Fetch and analyze frames continuously
+    useEffect(() => {
+        const poll = async () => {
+        if (!isRunning || isPolling.current) return;
 
-  // Fetch and analyze frames continuously
-  useEffect(() => {
-    const poll = async () => {
-      if (!isRunning || isPolling.current) return;
-
-      isPolling.current = true;
-      try {
-        const result = await fetchNextFrame({ sinceId: lastFrameId.current });
-        if (result.frameId && result.frameDataUri) {
-          lastFrameId.current = result.frameId;
-          await handleAnalysis(result.frameDataUri);
+        isPolling.current = true;
+        try {
+            const result = await fetchNextFrame({ sinceId: lastFrameId.current });
+            if (result.frameId && result.frameDataUri) {
+            lastFrameId.current = result.frameId;
+            await handleAnalysis(result.frameDataUri);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            isPolling.current = false;
+            if (isRunning) {
+                // Use a timeout to avoid a tight loop, especially if errors occur
+                setTimeout(poll, 1000); 
+            }
         }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        isPolling.current = false;
+        };
+
         if (isRunning) {
-          setTimeout(poll, 1000); // Poll every second
+            poll();
         }
-      }
-    };
-
-    if (isRunning) {
-      poll();
-    }
   }, [isRunning, handleAnalysis]);
+
+  // Update latest frame for display
+  useEffect(() => {
+    const fetchLatest = () => {
+        if (isRunning && cameraFeedUrl) {
+            fetch(`${cameraFeedUrl}?t=${new Date().getTime()}`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
+                .then(res => {
+                    if (res.ok) return res.blob();
+                    return null;
+                })
+                .then(blob => {
+                    if (blob) {
+                        setLatestFrame(URL.createObjectURL(blob));
+                    }
+                })
+                .catch(err => console.error("Failed to fetch latest frame:", err));
+        }
+    };
+    const interval = setInterval(fetchLatest, 1000); // Fetch every second
+    return () => clearInterval(interval);
+  }, [isRunning, cameraFeedUrl]);
+
 
   // Timer
   useEffect(() => {
@@ -310,15 +340,15 @@ export function LiveSession() {
               </div>
             </CardHeader>
             <CardContent>
-              {cameraFeedUrl ? (
+              {latestFrame ? (
                 <img
-                  src={cameraFeedUrl}
+                  src={latestFrame}
                   alt="Live camera feed"
                   className="w-full rounded-md"
                 />
               ) : (
                 <div className="flex h-64 w-full items-center justify-center rounded-md bg-muted text-muted-foreground">
-                  Camera feed URL not configured.
+                  Camera feed starting...
                 </div>
               )}
             </CardContent>
@@ -332,7 +362,7 @@ export function LiveSession() {
               </div>
             </CardHeader>
             <CardContent>
-              {latestAnalysis?.image_output ? (
+              {latestAnalysis?.image_output?.value ? (
                 <img
                   src={latestAnalysis.image_output.value}
                   alt="Roboflow analysis"
@@ -425,3 +455,4 @@ export function LiveSession() {
     </div>
   );
 }
+
