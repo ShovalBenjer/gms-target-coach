@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -109,11 +110,10 @@ export function LiveSession() {
     const targetCenterX = (latestAnalysis?.image.width ?? 0) / 2;
     const targetCenterY = (latestAnalysis?.image.height ?? 0) / 2;
     const offset = getDistance(avgX, avgY, targetCenterX, targetCenterY);
-
-    const distancesFromMpi = shots.map(s => getDistance(s.x, s.y, avgX, avgY));
-    const meanDistanceFromMpi = distancesFromMpi.reduce((sum, d) => sum + d, 0) / distancesFromMpi.length;
-    const consistency = Math.sqrt(distancesFromMpi.reduce((sum, d) => sum + Math.pow(d - meanDistanceFromMpi, 2), 0) / distancesFromMpi.length);
     
+    const distancesFromMpi = shots.map(s => getDistance(s.x, s.y, avgX, avgY));
+    const stdDev = Math.sqrt(distancesFromMpi.reduce((sum, d) => sum + Math.pow(d - (distancesFromMpi.reduce((a, b) => a + b) / distancesFromMpi.length), 2), 0) / (distancesFromMpi.length -1) );
+
     const sortedShots = [...shots].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     const splitTimes = [];
     if (sortedShots.length > 1) {
@@ -129,7 +129,7 @@ export function LiveSession() {
         groupSize: maxDistance,
         groupCenter: {x: avgX, y: avgY},
         groupOffset: offset,
-        consistency: consistency,
+        consistency: stdDev,
         time: time,
         cadence: cadence
     })
@@ -140,28 +140,26 @@ export function LiveSession() {
       try {
         const analysis = await getRoboflowAnalysis({ photoDataUri });
 
-        if (!analysis) return;
+        if (!analysis || !analysis.predictions) return;
         setLatestAnalysis(analysis);
 
-        if (analysis.predictions.length > 0) {
-          const newShots: Shot[] = [];
-          analysis.predictions.forEach((p) => {
-            if (!seenShotIds.current.has(p.detection_id)) {
-              seenShotIds.current.add(p.detection_id);
-              newShots.push({
-                ...p,
-                timestamp: new Date(analysis.frame_timestamp).toISOString(),
-              });
-            }
-          });
-
-          if (newShots.length > 0) {
-            setShots((prev) => [...prev, ...newShots]);
-            toast({
-              title: `${newShots.length} New Shot(s) Detected!`,
-              description: `Total shots: ${[...shots, ...newShots].length}`,
+        const newShots: Shot[] = [];
+        analysis.predictions.forEach((p) => {
+          if (!seenShotIds.current.has(p.detection_id)) {
+            seenShotIds.current.add(p.detection_id);
+            newShots.push({
+              ...p,
+              timestamp: new Date(analysis.frame_timestamp).toISOString(),
             });
           }
+        });
+
+        if (newShots.length > 0) {
+          setShots((prev) => [...prev, ...newShots]);
+          toast({
+            title: `${newShots.length} New Shot(s) Detected!`,
+            description: `Total shots: ${[...shots, ...newShots].length}`,
+          });
         }
       } catch (e) {
         toast({
@@ -299,7 +297,7 @@ export function LiveSession() {
             <CardContent>
               {latestAnalysis?.image_output ? (
                 <img
-                  src={`data:image/jpeg;base64,${latestAnalysis.image_output.value}`}
+                  src={latestAnalysis.image_output.value}
                   alt="Roboflow analysis"
                   className="w-full rounded-md"
                 />
@@ -386,4 +384,5 @@ export function LiveSession() {
       </div>
     </div>
   );
-}
+
+    
